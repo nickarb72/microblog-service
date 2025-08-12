@@ -1,0 +1,31 @@
+version: '3.8'
+
+services:
+#  web:
+#    build: .
+#    ports:
+#      - "5000:5000"
+#    environment:
+#      - DATABASE_URL=postgresql://test_user:password@db:5432/skillbox_db
+#    depends_on:
+#      - db
+
+  db:
+    image: postgres
+    environment:
+      - POSTGRES_USER=admin
+      - POSTGRES_PASSWORD=password
+      - POSTGRES_DB=microblog_db
+#      - PGOPTIONS=-c log_destination=stderr -c logging_collector=on -c log_directory=/var/log/postgresql
+    volumes:
+      - ./postgres_db:/var/lib/postgresql/data
+#      - ./postgres_logs:/var/log/postgresql
+#    command: >
+#      postgres -c log_destination=stderr
+#               -c logging_collector=on
+#               -c log_directory=/var/log/postgresql
+    ports:
+      - "5432:5432"
+
+#volumes:
+#  postgres_logs:
