@@ -14,7 +14,7 @@ class Tweet(Base):
 
     author = relationship("User", back_populates="tweets")
     media = relationship("TweetMedia", back_populates="tweet", cascade="all, delete-orphan")
-    likes = relationship("Like", back_populates="tweet")
+    likes = relationship("Like", back_populates="tweet", cascade="all, delete-orphan")
 
     def to_json(self) -> Dict[str, Any]:
         return {c.name: getattr(self, c.name) for c in self.__table__.columns}
@@ -40,7 +40,7 @@ class Like(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    tweet_id = Column(Integer, ForeignKey("tweets.id"), nullable=False)
+    tweet_id = Column(Integer, ForeignKey("tweets.id", ondelete="CASCADE"), nullable=False)
 
     user = relationship("User", back_populates="likes")
     tweet = relationship("Tweet", back_populates="likes")

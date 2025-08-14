@@ -26,10 +26,16 @@ app = FastAPI(
     description="API for microblogging service",
     version="1.0.0",
     lifespan=lifespan,
-    openapi_tags=[{
-        "name": "tweets",
-        "description": "Operations with tweets"
-    }]
+    openapi_tags=[
+        {
+            "name": "tweets",
+            "description": "Operations with tweets"
+        },
+        {
+            "name": "users",
+            "description": "Operations with users",
+        }
+    ]
 )
 
 app.include_router(main_router, prefix="/api")

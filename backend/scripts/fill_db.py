@@ -1,3 +1,9 @@
+# DROP DATABASE microblog_db;
+# CREATE DATABASE microblog_db;
+# GRANT ALL PRIVILEGES ON SCHEMA public TO admin;
+# GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO admin;
+# ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO admin;
+
 import asyncio
 from faker import Faker
 from sqlalchemy import text, insert
@@ -18,13 +24,11 @@ async def create_test_data(session: AsyncSession):
     result = await session.execute(insert(User).returning(User.id), users_data)
     user_ids = result.scalars().all()
 
-    # Создаём твиты
     # tweets_data = [
     #     {"content": fake.text(280), "user_id": user_ids[i % 5]} for i in range(20)
     # ]
     # await session.execute(insert(Tweet), tweets_data)
     #
-    # # Создаём подписки (каждый подписан на следующего)
     # follows_data = [
     #     {"follower_id": user_ids[i], "following_id": user_ids[(i + 1) % 5]}
     #     for i in range(5)

@@ -1,6 +1,9 @@
+from typing import List, Dict
+
 from fastapi import HTTPException
 from fastapi.responses import JSONResponse
 
+from backend.app.db.models import Tweet, User
 from backend.app.schemas.tweet import ErrorResponse
 
 
@@ -17,3 +20,46 @@ def api_error(
             error_message=error_message
         ).model_dump()
     )
+
+
+def format_tweets(tweets: List[Tweet]) -> List:
+    formatted_tweets = []
+    for tweet in tweets:
+        formatted_tweets.append({
+            "id": tweet.id,
+            "content": tweet.content,
+            "attachments": [media.url for media in tweet.media],
+            "author": {
+                "id": tweet.author.id,
+                "name": tweet.author.name
+            },
+            "likes": [
+                {
+                    "user_id": like.user.id,
+                    "name": like.user.name
+                } for like in tweet.likes
+            ]
+        })
+
+    return formatted_tweets
+
+
+def format_user(user: User) -> Dict:
+    formatted_user = {
+        "id": user.id,
+        "name": user.name,
+        "followers": [
+            {
+                "id": follow.follower.id,
+                "name": follow.follower.name
+            } for follow in user.followers
+        ],
+        "following": [
+            {
+                "id": follow.following.id,
+                "name": follow.following.name
+            } for follow in user.following
+        ]
+    }
+
+    return formatted_user
