@@ -2,8 +2,9 @@ from contextlib import asynccontextmanager
 
 import uvicorn
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
 
-from backend.app.config import UPLOADS_DIR
+from backend.app.config import UPLOADS_DIR, PROJECT_ROOT
 from backend.app.db.session import engine, Base
 from backend.app.api.api import main_router
 
@@ -38,12 +39,15 @@ app = FastAPI(
     ]
 )
 
+frontend_path = PROJECT_ROOT / "backend/frontend"
+app.mount("/", StaticFiles(directory=frontend_path, html=True), name="frontend")
+
 app.include_router(main_router, prefix="/api")
 
 
-@app.get("/")
-async def root():
-    return {"message": "Microblog API is running"}
+# @app.get("/")
+# async def root():
+#     return {"message": "Microblog API is running"}
 
 
 if __name__ == '__main__':
