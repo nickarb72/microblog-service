@@ -1,23 +1,22 @@
-from typing import Any, Dict
-
-from sqlalchemy import Column, Integer, String, ForeignKey, DateTime
+from sqlalchemy import Column, ForeignKey, Integer, String
 from sqlalchemy.orm import relationship
+
 from backend.app.db.session import Base
+from backend.app.config import MAX_TEXT_SIZE
 
 
 class Tweet(Base):
     __tablename__ = "tweets"
 
     id = Column(Integer, primary_key=True, index=True)
-    content = Column(String(280), nullable=False)
+    content = Column(String(MAX_TEXT_SIZE), nullable=False)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
 
     author = relationship("User", back_populates="tweets")
-    media = relationship("TweetMedia", back_populates="tweet", cascade="all, delete-orphan")
+    media = relationship(
+        "TweetMedia", back_populates="tweet", cascade="all, delete-orphan"
+    )
     likes = relationship("Like", back_populates="tweet", cascade="all, delete-orphan")
-
-    def to_json(self) -> Dict[str, Any]:
-        return {c.name: getattr(self, c.name) for c in self.__table__.columns}
 
 
 class TweetMedia(Base):
@@ -25,14 +24,13 @@ class TweetMedia(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     url = Column(String, nullable=False)
-    tweet_id = Column(Integer, ForeignKey("tweets.id", ondelete="CASCADE"), nullable=True)
+    tweet_id = Column(
+        Integer, ForeignKey("tweets.id", ondelete="CASCADE"), nullable=True
+    )
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
 
     tweet = relationship("Tweet", back_populates="media")
     user = relationship("User")
-
-    def to_json(self) -> Dict[str, Any]:
-        return {c.name: getattr(self, c.name) for c in self.__table__.columns}
 
 
 class Like(Base):
@@ -40,10 +38,9 @@ class Like(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    tweet_id = Column(Integer, ForeignKey("tweets.id", ondelete="CASCADE"), nullable=False)
+    tweet_id = Column(
+        Integer, ForeignKey("tweets.id", ondelete="CASCADE"), nullable=False
+    )
 
     user = relationship("User", back_populates="likes")
     tweet = relationship("Tweet", back_populates="likes")
-
-    def to_json(self) -> Dict[str, Any]:
-        return {c.name: getattr(self, c.name) for c in self.__table__.columns}

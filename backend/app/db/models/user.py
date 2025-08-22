@@ -1,7 +1,6 @@
-from typing import Dict, Any
-
 from sqlalchemy import Column, Integer, String
 from sqlalchemy.orm import relationship
+
 from backend.app.db.session import Base
 
 
@@ -24,6 +23,3 @@ class User(Base):
         foreign_keys="Follow.follower_id",
         back_populates="follower",
     )
-
-    def to_json(self) -> Dict[str, Any]:
-        return {c.name: getattr(self, c.name) for c in self.__table__.columns}

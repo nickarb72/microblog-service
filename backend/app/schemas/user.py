@@ -1,11 +1,10 @@
-from typing import List, Optional
+from typing import List
 
-from fastapi import UploadFile, File
-from pydantic import BaseModel, Field, RootModel
+from pydantic import BaseModel, Field
 
 
 class Follow(BaseModel):
-    id: int = Field(..., example=11)
+    id: int = Field(..., example=10)
     name: str = Field(..., example="John Doe")
 
 
@@ -18,5 +17,6 @@ class User(BaseModel):
 
 class UserResponse(BaseModel):
     """Response schema for successful getting user"""
+
     result: bool = Field(..., example=True)
     user: User

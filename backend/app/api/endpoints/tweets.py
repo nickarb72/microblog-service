@@ -1,28 +1,49 @@
 import asyncio
 import os
 import uuid
-from pathlib import Path
-
-import fastapi
-from fastapi import APIRouter, Depends, HTTPException, status, Header, UploadFile, File
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, update
+import pathlib
 from typing import List
 
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Header,
+    HTTPException,
+    Path,
+    UploadFile,
+    status,
+)
+from sqlalchemy import and_, desc, func, select, update
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from backend.app.api.api_utils import api_error, format_tweets
+from backend.app.config import (
+    ALLOWED_TYPES,
+    MAX_FILE_SIZE,
+    MAX_FILE_SIZE_MB,
+    UPLOADS_DIR,
+)
+from backend.app.db.models import Follow, Like, Tweet, TweetMedia, User
 from backend.app.db.session import get_db
-from backend.app.db.models import Tweet, TweetMedia, Like, User, Follow
-from backend.app.config import UPLOADS_DIR, ALLOWED_TYPES, MAX_FILE_SIZE
+from backend.app.db.db_utils import (
+    get_like_by_tweet_and_user_id,
+    get_tweet_by_id,
+    get_user_by_api_key,
+)
 from backend.app.schemas import (
-    TweetCreateRequest,
-    TweetCreateResponse,
     ErrorResponse,
     MediaUploadResponse,
-    MediaFileForm, TweetDeleteLikeFollowResponse, TweetsFeedResponse
+    TweetCreateRequest,
+    TweetCreateResponse,
+    TweetDeleteLikeFollowResponse,
+    TweetsFeedResponse,
 )
-from backend.app.db.utils import get_user_by_api_key, get_tweet_by_id, get_like_by_tweet_and_user_id
-from backend.app.api.utils import api_error, format_tweets
+
+HTTP_PAYLOAD_TOO_LARGE = 413
+RESPONSE_MODEL = "model"
+TAG = "tweets"
 
 router = APIRouter()
 
@@ -31,18 +52,18 @@ router = APIRouter()
     "/tweets",
     response_model=TweetCreateResponse,
     responses={
-        400: {"model": ErrorResponse},
-        401: {"model": ErrorResponse},
-        404: {"model": ErrorResponse}
+        400: {RESPONSE_MODEL: ErrorResponse},
+        401: {RESPONSE_MODEL: ErrorResponse},
+        404: {RESPONSE_MODEL: ErrorResponse},
     },
     summary="Create a new tweet",
     description="Creates a tweet with optional media attachments",
-    tags=["tweets"]
+    tags=[TAG],
 )
 async def create_tweet(
-        tweet_data: TweetCreateRequest,
-        api_key: str = Header(..., alias="api-key"),
-        db: AsyncSession = Depends(get_db)
+    tweet_data: TweetCreateRequest,
+    api_key: str = Header(..., alias="api-key"),
+    db: AsyncSession = Depends(get_db),
 ):
     """
     Create a new tweet for authenticated user
@@ -62,29 +83,26 @@ async def create_tweet(
         user = await get_user_by_api_key(db, api_key)
         if not user:
             return api_error(
-                    error_type="authentication_error",
-                    error_message="Invalid API key",
-                    status_code=status.HTTP_401_UNAUTHORIZED
-                )
+                error_type="authentication_error",
+                error_message="Invalid API key",
+                status_code=status.HTTP_401_UNAUTHORIZED,
+            )
 
         if tweet_data.tweet_media_ids:
             media_count = await db.execute(
                 select(func.count(TweetMedia.id)).where(
                     TweetMedia.id.in_(tweet_data.tweet_media_ids),
-                    TweetMedia.user_id == user.id
+                    TweetMedia.user_id == user.id,
                 )
             )
             if media_count.scalar() != len(tweet_data.tweet_media_ids):
                 return api_error(
                     error_type="not_found",
                     error_message="Some media files not found",
-                    status_code=status.HTTP_404_NOT_FOUND
+                    status_code=status.HTTP_404_NOT_FOUND,
                 )
 
-        tweet = Tweet(
-            content=tweet_data.tweet_data,
-            user_id=user.id
-        )
+        tweet = Tweet(content=tweet_data.tweet_data, user_id=user.id)
 
         db.add(tweet)
         await db.flush()
@@ -96,29 +114,23 @@ async def create_tweet(
                 .values(tweet_id=tweet.id)
             )
 
-        return TweetCreateResponse(
-            result=True,
-            tweet_id=tweet.id
-        )
+        return TweetCreateResponse(result=True, tweet_id=tweet.id)
 
     except HTTPException as he:
         return api_error(
             error_type="http_error",
             error_message=str(he.detail),
-            status_code=he.status_code
+            status_code=he.status_code,
         )
 
-    except ValueError as e:
-        return api_error(
-            error_type="validation_error",
-            error_message=str(e)
-        )
+    except ValueError as exc:
+        return api_error(error_type="validation_error", error_message=str(exc))
 
-    except Exception as e:
+    except Exception as exc:
         return api_error(
             error_type="server_error",
-            error_message=str(e),
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+            error_message=str(exc),
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         )
 
 
@@ -126,18 +138,18 @@ async def create_tweet(
     "/medias",
     response_model=MediaUploadResponse,
     responses={
-        400: {"model": ErrorResponse},
-        401: {"model": ErrorResponse},
-        413: {"model": ErrorResponse}
+        400: {RESPONSE_MODEL: ErrorResponse},
+        401: {RESPONSE_MODEL: ErrorResponse},
+        413: {RESPONSE_MODEL: ErrorResponse},
     },
     summary="Upload media file",
     description="Upload image file (JPEG/PNG, max 5MB)",
-    tags=["tweets"]
+    tags=[TAG],
 )
 async def upload_media(
     api_key: str = Header(..., alias="api-key"),
-    file: UploadFile = File(...),
-    db: AsyncSession = Depends(get_db)
+    upload_file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
 ):
     try:
         user = await get_user_by_api_key(db, api_key)
@@ -145,71 +157,78 @@ async def upload_media(
             return api_error(
                 error_type="authentication_error",
                 error_message="Invalid API key",
-                status_code=status.HTTP_401_UNAUTHORIZED
+                status_code=status.HTTP_401_UNAUTHORIZED,
             )
 
-        if file.content_type not in ALLOWED_TYPES:
+        if upload_file.content_type not in ALLOWED_TYPES:
             return api_error(
                 error_type="validation_error",
                 error_message="Only JPEG/PNG images allowed",
             )
 
-        file.file.seek(0, os.SEEK_END)
-        file_size = file.file.tell()
-        file.file.seek(0)
+        upload_file.file.seek(0, os.SEEK_END)
+        file_size = upload_file.file.tell()
+        upload_file.file.seek(0)
         if file_size > MAX_FILE_SIZE:
             return api_error(
                 error_type="validation_error",
-                error_message=f"File too large. Max size: {MAX_FILE_SIZE//1024//1024}MB",
-                status_code=413
+                error_message=f"File too large. Max size: " f"{MAX_FILE_SIZE_MB}MB",
+                status_code=HTTP_PAYLOAD_TOO_LARGE,
             )
 
-        file_ext = file.filename.split(".")[-1]
+        file_ext = upload_file.filename.split(".")[-1]
         filename = f"{uuid.uuid4()}.{file_ext}"
-        file_path = UPLOADS_DIR / filename
 
-        with open(file_path, "wb") as buffer:
-            buffer.write(await file.read())
-
-        relative_path = str(Path("uploads") / filename)
+        with open(UPLOADS_DIR / filename, "wb") as buffer:
+            buffer.write(await upload_file.read())
 
         media = TweetMedia(
             user_id=user.id,
-            url=relative_path,
+            url=str(pathlib.Path("uploads") / filename),
         )
 
         db.add(media)
         await db.flush()
 
-        return MediaUploadResponse(
-            result=True,
-            media_id=media.id
-        )
+        return MediaUploadResponse(result=True, media_id=media.id)
 
-    except Exception as e:
+    except Exception as exc:
         return api_error(
             error_type="server_error",
-            error_message=str(e),
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+            error_message=str(exc),
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         )
+
+
+async def delete_files(relative_file_paths: List[str]) -> None:
+    delete_tasks = []
+
+    for relative_file_path in relative_file_paths:
+        file_path = UPLOADS_DIR / pathlib.Path(relative_file_path).name
+
+        if file_path.exists():
+            delete_tasks.append(asyncio.to_thread(os.remove, str(file_path)))
+
+    if delete_tasks:
+        await asyncio.gather(*delete_tasks)
 
 
 @router.delete(
     "/tweets/{tweet_id}",
     response_model=TweetDeleteLikeFollowResponse,
     responses={
-        400: {"model": ErrorResponse},
-        401: {"model": ErrorResponse},
-        413: {"model": ErrorResponse}
+        400: {RESPONSE_MODEL: ErrorResponse},
+        401: {RESPONSE_MODEL: ErrorResponse},
+        413: {RESPONSE_MODEL: ErrorResponse},
     },
     summary="Delete the tweet",
     description="Delete the tweet by tweet ID",
-    tags=["tweets"]
+    tags=[TAG],
 )
 async def delete_tweet(
     api_key: str = Header(..., alias="api-key"),
-    tweet_id: int = fastapi.Path(..., ge=1),
-    db: AsyncSession = Depends(get_db)
+    tweet_id: int = Path(..., ge=1),
+    db: AsyncSession = Depends(get_db),
 ):
     try:
         user = await get_user_by_api_key(db, api_key)
@@ -217,7 +236,7 @@ async def delete_tweet(
             return api_error(
                 error_type="authentication_error",
                 error_message="Invalid API key",
-                status_code=status.HTTP_401_UNAUTHORIZED
+                status_code=status.HTTP_401_UNAUTHORIZED,
             )
 
         tweet = await get_tweet_by_id(db, tweet_id)
@@ -225,28 +244,25 @@ async def delete_tweet(
             return api_error(
                 error_type="not_found",
                 error_message="Tweet not found or belongs to another user",
-                status_code=status.HTTP_404_NOT_FOUND
+                status_code=status.HTTP_404_NOT_FOUND,
             )
 
-        result = await db.execute(
+        medias = await db.execute(
             select(TweetMedia.url).where(TweetMedia.tweet_id == tweet_id)
         )
-        relative_file_paths = result.scalars().all()
+        relative_file_paths = medias.scalars().all()
 
-        for relative_file_path in relative_file_paths:
-            file_path = str(UPLOADS_DIR / Path(relative_file_path).name)
-            if os.path.exists(file_path):
-                await asyncio.to_thread(os.remove, file_path)
+        await delete_files(relative_file_paths)
 
         await db.delete(tweet)
 
         return TweetDeleteLikeFollowResponse(result=True)
 
-    except Exception as e:
+    except Exception as exc:
         return api_error(
             error_type="server_error",
-            error_message=str(e),
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+            error_message=str(exc),
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         )
 
 
@@ -254,18 +270,18 @@ async def delete_tweet(
     "/tweets/{tweet_id}/likes",
     response_model=TweetDeleteLikeFollowResponse,
     responses={
-        400: {"model": ErrorResponse},
-        401: {"model": ErrorResponse},
-        413: {"model": ErrorResponse}
+        400: {RESPONSE_MODEL: ErrorResponse},
+        401: {RESPONSE_MODEL: ErrorResponse},
+        413: {RESPONSE_MODEL: ErrorResponse},
     },
     summary="Like a tweet",
     description="Like a tweet by tweet ID",
-    tags=["tweets"]
+    tags=[TAG],
 )
 async def create_like(
     api_key: str = Header(..., alias="api-key"),
-    tweet_id: int = fastapi.Path(..., ge=1),
-    db: AsyncSession = Depends(get_db)
+    tweet_id: int = Path(..., ge=1),
+    db: AsyncSession = Depends(get_db),
 ):
     try:
         user = await get_user_by_api_key(db, api_key)
@@ -273,32 +289,36 @@ async def create_like(
             return api_error(
                 error_type="authentication_error",
                 error_message="Invalid API key",
-                status_code=status.HTTP_401_UNAUTHORIZED
+                status_code=status.HTTP_401_UNAUTHORIZED,
             )
 
         tweet = await get_tweet_by_id(db, tweet_id)
-        like = await get_like_by_tweet_and_user_id(db, tweet_id, user.id)
-        if not tweet or like:
+        if not tweet:
             return api_error(
                 error_type="not_found",
-                error_message="Tweet not found or like already exists",
-                status_code=status.HTTP_404_NOT_FOUND
+                error_message="Tweet not found",
+                status_code=status.HTTP_404_NOT_FOUND,
             )
 
-        like = Like(
-            tweet_id=tweet_id,
-            user_id=user.id
-        )
+        like = await get_like_by_tweet_and_user_id(db, tweet_id, user.id)
+        if like:
+            return api_error(
+                error_type="like_already_exists",
+                error_message="This like already exist",
+                status_code=status.HTTP_409_CONFLICT,
+            )
+
+        like = Like(tweet_id=tweet_id, user_id=user.id)
 
         db.add(like)
 
         return TweetDeleteLikeFollowResponse(result=True)
 
-    except Exception as e:
+    except Exception as exc:
         return api_error(
             error_type="server_error",
-            error_message=str(e),
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+            error_message=str(exc),
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         )
 
 
@@ -306,18 +326,18 @@ async def create_like(
     "/tweets/{tweet_id}/likes",
     response_model=TweetDeleteLikeFollowResponse,
     responses={
-        400: {"model": ErrorResponse},
-        401: {"model": ErrorResponse},
-        413: {"model": ErrorResponse}
+        400: {RESPONSE_MODEL: ErrorResponse},
+        401: {RESPONSE_MODEL: ErrorResponse},
+        413: {RESPONSE_MODEL: ErrorResponse},
     },
     summary="Remove like from the tweet",
     description="Remove like from the tweet by tweet ID",
-    tags=["tweets"]
+    tags=[TAG],
 )
 async def delete_like(
     api_key: str = Header(..., alias="api-key"),
-    tweet_id: int = fastapi.Path(..., ge=1),
-    db: AsyncSession = Depends(get_db)
+    tweet_id: int = Path(..., ge=1),
+    db: AsyncSession = Depends(get_db),
 ):
     try:
         user = await get_user_by_api_key(db, api_key)
@@ -325,7 +345,7 @@ async def delete_like(
             return api_error(
                 error_type="authentication_error",
                 error_message="Invalid API key",
-                status_code=status.HTTP_401_UNAUTHORIZED
+                status_code=status.HTTP_401_UNAUTHORIZED,
             )
 
         like = await get_like_by_tweet_and_user_id(db, tweet_id, user.id)
@@ -333,18 +353,18 @@ async def delete_like(
             return api_error(
                 error_type="not_found",
                 error_message="Like not found",
-                status_code=status.HTTP_404_NOT_FOUND
+                status_code=status.HTTP_404_NOT_FOUND,
             )
 
         await db.delete(like)
 
         return TweetDeleteLikeFollowResponse(result=True)
 
-    except Exception as e:
+    except Exception as exc:
         return api_error(
             error_type="server_error",
-            error_message=str(e),
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+            error_message=str(exc),
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         )
 
 
@@ -352,17 +372,16 @@ async def delete_like(
     "/tweets",
     response_model=TweetsFeedResponse,
     responses={
-        400: {"model": ErrorResponse},
-        401: {"model": ErrorResponse},
-        500: {"model": ErrorResponse}
+        400: {RESPONSE_MODEL: ErrorResponse},
+        401: {RESPONSE_MODEL: ErrorResponse},
+        500: {RESPONSE_MODEL: ErrorResponse},
     },
     summary="Get user's tweet feed",
     description="Returns a list of tweets from users the current user follows",
-    tags=["tweets"]
+    tags=[TAG],
 )
 async def get_tweets_feed(
-        api_key: str = Header(..., alias="api-key"),
-        db: AsyncSession = Depends(get_db)
+    api_key: str = Header(..., alias="api-key"), db: AsyncSession = Depends(get_db)
 ):
     try:
         user = await get_user_by_api_key(db, api_key)
@@ -370,41 +389,48 @@ async def get_tweets_feed(
             return api_error(
                 error_type="authentication_error",
                 error_message="Invalid API key",
-                status_code=status.HTTP_401_UNAUTHORIZED
+                status_code=status.HTTP_401_UNAUTHORIZED,
             )
+
+        likes_subquery = (
+            select(
+                Like.tweet_id, func.count(Like.id).label("followed_user_likes_count")
+            )
+            .join(User, Like.user_id == User.id)
+            .join(
+                Follow,
+                and_(Follow.following_id == User.id, Follow.follower_id == user.id),
+            )
+            .group_by(Like.tweet_id)
+        ).cte("followed_user_likes")
 
         query = (
             select(Tweet)
             .join(User, Tweet.user_id == User.id)
-            .join(
+            .outerjoin(
                 Follow,
-                Follow.following_id == Tweet.user_id,
-                isouter=True
+                and_(
+                    Follow.following_id == Tweet.user_id, Follow.follower_id == user.id
+                ),
             )
-            .where(
-                (Follow.follower_id == user.id) |
-                (Tweet.user_id == user.id)
-            )
+            .where((Follow.follower_id == user.id) | (Tweet.user_id == user.id))
+            .outerjoin(likes_subquery, likes_subquery.c.tweet_id == Tweet.id)
+            .order_by(desc(likes_subquery.c.followed_user_likes_count))
             .options(
                 selectinload(Tweet.author),
                 selectinload(Tweet.likes).joinedload(Like.user),
-                selectinload(Tweet.media)
+                selectinload(Tweet.media),
             )
         )
 
-        result = await db.execute(query)
-        tweets = result.scalars().all()
+        cor_tweets = await db.execute(query)
+        tweets = cor_tweets.scalars().all()
 
-        formatted_tweets = format_tweets(tweets)
+        return {"result": True, "tweets": format_tweets(tweets)}
 
-        return {
-            "result": True,
-            "tweets": formatted_tweets
-        }
-
-    except Exception as e:
+    except Exception as exc:
         return api_error(
             error_type="server_error",
-            error_message=str(e),
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+            error_message=str(exc),
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         )

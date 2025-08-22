@@ -1,5 +1,6 @@
 from fastapi import APIRouter
-from .endpoints import users, tweets
+
+from backend.app.api.endpoints import tweets, users
 
 main_router = APIRouter()
 main_router.include_router(users.router, tags=["users"])

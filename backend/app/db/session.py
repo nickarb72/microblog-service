@@ -1,14 +1,19 @@
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
-from sqlalchemy.orm import sessionmaker, declarative_base
+import os
 
-# DATABASE_URL = "postgresql+asyncpg://admin:password@db:5432/microblog_db"
-DATABASE_URL = "postgresql+asyncpg://admin:password@localhost:5432/microblog_db"
+from dotenv import load_dotenv
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+from sqlalchemy.orm import declarative_base, sessionmaker
 
+POOL_SIZE = 20
+
+load_dotenv()
+
+DATABASE_URL = os.getenv("DATABASE_URL")
 
 engine = create_async_engine(
     DATABASE_URL,
-    echo=True,
-    pool_size=20,
+    # echo=True,
+    pool_size=POOL_SIZE,
     max_overflow=10,
     pool_pre_ping=True,
 )
@@ -20,6 +25,7 @@ AsyncSessionLocal = sessionmaker(
 )
 
 Base = declarative_base()
+
 
 async def get_db() -> AsyncSession:
     """
