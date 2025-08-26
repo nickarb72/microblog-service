@@ -1,0 +1,5 @@
+[flake8]
+ignore = WPS404, WPS110, WPS226, WPS229, WPS300, WPS412, WPS221, WPS410
+max-line-length = 88
+exclude = migrations, tests, scripts
+max-cognitive-complexity = 16
